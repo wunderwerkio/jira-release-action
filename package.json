@@ -1,0 +1,43 @@
+{
+	"name": "jira-release-action",
+	"version": "0.0.0",
+	"description": "GitHub Action to work with jira releases.",
+	"type": "module",
+	"private": true,
+	"homepage": "https://github.com/wunderwerkio/jira-release-action",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/wunderwerkio/jira-release-action.git"
+	},
+	"bugs": {
+		"url": "https://github.com/wunderwerkio/jira-release-action/issues"
+	},
+	"volta": {
+		"node": "24.11.1"
+	},
+	"exports": {
+		".": "./dist/index.js"
+	},
+	"engines": {
+		"node": ">=24.0.0"
+	},
+	"scripts": {
+		"format:check": "biome check",
+		"format:write": "biome format --write",
+		"local-action": "npx @github/local-action . src/main.ts .env",
+		"package": "npx rollup --config rollup.config.ts --configPlugin @rollup/plugin-typescript"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.6",
+		"@github/local-action": "^6.0.2",
+		"@rollup/plugin-commonjs": "^29.0.0",
+		"@rollup/plugin-node-resolve": "^16.0.3",
+		"@rollup/plugin-typescript": "^12.3.0",
+		"@types/node": "^24.10.1",
+		"rollup": "^4.53.3",
+		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"@actions/core": "^1.11.1"
+	}
+}

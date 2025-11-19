@@ -1,0 +1,24 @@
+name: Jira Release Action
+description: GitHub Action to work with Jira releases.
+author: wunderwerk software GmbH
+
+# Add your action's branding here. This will appear on the GitHub Marketplace.
+branding:
+  icon: heart
+  color: red
+
+# Define your inputs here.
+inputs:
+  milliseconds:
+    description: Your input description here
+    required: true
+    default: '1000'
+
+# Define your outputs here.
+outputs:
+  time:
+    description: Your output description here
+
+runs:
+  using: node24
+  main: dist/index.js
