@@ -3,6 +3,7 @@ import * as v from "valibot";
 import {
 	createJiraClient,
 	deleteProjectVersionByName,
+	setVersionOnIssues,
 	upsertProjectVersion,
 } from "./jira.js";
 import { InputSchema } from "./schema.js";
@@ -59,13 +60,21 @@ export async function run(): Promise<void> {
 		);
 
 		if (input.operation === "create_or_update") {
-			await upsertProjectVersion(client, input.jira_project, {
+			const version = await upsertProjectVersion(client, input.jira_project, {
 				name: input.release_name,
 				description: input.release_description,
 				released: input.release_released,
 				releaseDate: input.release_release_date || undefined,
 				archived: input.release_archived,
 			});
+
+			if (input.tickets) {
+				const issueIdsOrKeys = input.tickets
+					.split(",")
+					.map((ticket) => ticket.trim());
+				// biome-ignore lint/style/noNonNullAssertion: We know id is set!
+				await setVersionOnIssues(client, version.id!, issueIdsOrKeys);
+			}
 		} else if (input.operation === "delete") {
 			await deleteProjectVersionByName(
 				client,
@@ -74,6 +83,7 @@ export async function run(): Promise<void> {
 			);
 		}
 	} catch (error) {
+		core.debug(JSON.stringify(error, null, 2));
 		// Fail the workflow run if an error occurs
 		if (error instanceof Error) core.setFailed(error.message);
 	}

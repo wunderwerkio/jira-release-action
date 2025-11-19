@@ -186,6 +186,59 @@ async function updateProjectVersion(
 }
 
 /**
+ * Sets a version on multiple Jira issues concurrently.
+ *
+ * @param client - The Jira client instance.
+ * @param versionId - The ID of the version to add.
+ * @param issueIdsOrKeys - Array of issue IDs or keys to update.
+ * @returns Array of updated issues.
+ */
+export async function setVersionOnIssues(
+	client: Version3Client,
+	versionId: string,
+	issueIdsOrKeys: string[],
+) {
+	core.info(
+		`Setting version ${versionId} on issues ${issueIdsOrKeys.join(", ")}...`,
+	);
+
+	return await Promise.all(
+		issueIdsOrKeys.map((issueIdOrKey) =>
+			setVersionOnIssue(client, versionId, issueIdOrKey),
+		),
+	);
+}
+
+/**
+ * Adds a version to a single Jira issue.
+ *
+ * @param client - The Jira client instance.
+ * @param versionId - The ID of the version to add.
+ * @param issueIdOrKey - The ID or key of the issue to update.
+ * @returns The updated issue.
+ */
+async function setVersionOnIssue(
+	client: Version3Client,
+	versionId: string,
+	issueIdOrKey: string,
+) {
+	core.debug(`Setting version ${versionId} on issue ${issueIdOrKey}...`);
+
+	return await client.issues.editIssue({
+		issueIdOrKey,
+		update: {
+			fixVersions: [
+				{
+					add: {
+						id: versionId,
+					},
+				},
+			],
+		},
+	});
+}
+
+/**
  * Prepares parameters for upsert operations, handling release date logic.
  *
  * @param params - The input parameters.
