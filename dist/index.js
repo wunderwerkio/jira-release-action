@@ -27612,33 +27612,6 @@ function pipe(...pipe2) {
   };
 }
 
-// Define Valibot schema
-const InputSchema = pipe(object({
-    email: string(),
-    api_token: string(),
-    subdomain: string(),
-    jira_project: string(),
-    release_name: string(),
-    operation: picklist(["create_or_update", "delete"]),
-    tickets: string(),
-    dry_run: boolean(),
-    release_description: string(),
-    release_released: boolean(),
-    release_release_date: string(),
-    release_archived: boolean(),
-}), check((input) => {
-    if (input.release_released && input.release_release_date.trim() === "") {
-        return false;
-    }
-    return true;
-}, "Release date is required when release is marked as released."), check((input) => {
-    if (input.release_release_date.trim() !== "") {
-        const date = new Date(input.release_release_date);
-        return !Number.isNaN(date.getTime());
-    }
-    return true;
-}, "Release date must be a valid date."));
-
 /**
  * Create a bound version of a function with a specified `this` context
  *
@@ -60933,6 +60906,14 @@ var ClientType;
     ClientType["ServiceDesk"] = "serviceDesk";
 })(ClientType || (ClientType = {}));
 
+/**
+ * Creates a Jira client instance using basic authentication.
+ *
+ * @param email - The email address for authentication.
+ * @param apiToken - The API token for authentication.
+ * @param subdomain - The Jira subdomain (e.g., 'mycompany').
+ * @returns A configured Version3Client instance.
+ */
 async function createJiraClient(email, apiToken, subdomain) {
     const host = `https://${subdomain}.atlassian.net`;
     return new Version3Client({
@@ -60945,48 +60926,194 @@ async function createJiraClient(email, apiToken, subdomain) {
         },
     });
 }
+/**
+ * Retrieves a project version by name from Jira.
+ *
+ * @param client - The Jira client instance.
+ * @param projectKey - The project key.
+ * @param name - The version name to search for.
+ * @returns The matching version or null if not found.
+ */
 async function getProjectVersionByName(client, projectKey, name) {
+    coreExports.info(`Getting version ${name}...`);
     const versions = await client.projectVersions.getProjectVersionsPaginated({
         projectIdOrKey: projectKey,
         query: name,
     });
+    coreExports.debug(JSON.stringify(versions, null, 2));
     return versions.values?.find((v) => v.name === name) || null;
 }
+/**
+ * Deletes a project version by name.
+ *
+ * @param client - The Jira client instance.
+ * @param projectKey - The project key.
+ * @param name - The version name to delete.
+ * @throws Error if version not found.
+ */
 async function deleteProjectVersionByName(client, projectKey, name) {
     const version = await getProjectVersionByName(client, projectKey, name);
     if (!version || !version.id) {
         throw new Error(`Version ${name} not found`);
     }
+    coreExports.info(`Deleting version ${name}...`);
+    coreExports.debug(JSON.stringify(version, null, 2));
     await client.projectVersions.deleteAndReplaceVersion({
         id: version.id,
     });
 }
+/**
+ * Retrieves the project ID from the project key.
+ *
+ * @param client - The Jira client instance.
+ * @param projectKey - The project key.
+ * @returns The project ID as a string.
+ */
 async function getProjectId(client, projectKey) {
     const project = await client.projects.getProject({
         projectIdOrKey: projectKey,
     });
+    coreExports.debug(JSON.stringify(project, null, 2));
     return project.id;
 }
+/**
+ * Upserts a project version (creates if not exists, updates if exists).
+ *
+ * @param client - The Jira client instance.
+ * @param projectKey - The project key.
+ * @param params - The version parameters.
+ * @returns The created or updated version.
+ */
 async function upsertProjectVersion(client, projectKey, params) {
+    // Make sure the release date is in YYYY-MM-DD format.
+    params.releaseDate = params.releaseDate
+        ? new Date(params.releaseDate).toISOString().split("T")[0]
+        : undefined;
     const version = await getProjectVersionByName(client, projectKey, params.name);
     if (version?.id) {
         return await updateProjectVersion(client, version.id, params);
     }
     return await createProjectVersion(client, projectKey, params);
 }
+/**
+ * Creates a new project version.
+ *
+ * @param client - The Jira client instance.
+ * @param projectKey - The project key.
+ * @param params - The version parameters.
+ * @returns The created version.
+ */
 async function createProjectVersion(client, projectKey, params) {
     const projectId = await getProjectId(client, projectKey);
+    const preparedParams = prepareUpsertParams(params);
+    coreExports.info(`Creating project version ${preparedParams.name}...`);
+    coreExports.debug(JSON.stringify(preparedParams, null, 2));
     return await client.projectVersions.createVersion({
-        ...params,
+        ...preparedParams,
         projectId,
     });
 }
+/**
+ * Updates an existing project version.
+ *
+ * @param client - The Jira client instance.
+ * @param versionId - The version ID to update.
+ * @param params - The version parameters.
+ * @returns The updated version.
+ */
 async function updateProjectVersion(client, versionId, params) {
+    const preparedParams = prepareUpsertParams(params);
+    coreExports.info(`Updating project version ${preparedParams.name}...`);
+    coreExports.debug(JSON.stringify(preparedParams, null, 2));
     return await client.projectVersions.updateVersion({
-        ...params,
+        ...preparedParams,
         id: versionId,
     });
 }
+/**
+ * Sets a version on multiple Jira issues concurrently.
+ *
+ * @param client - The Jira client instance.
+ * @param versionId - The ID of the version to add.
+ * @param issueIdsOrKeys - Array of issue IDs or keys to update.
+ * @returns Array of updated issues.
+ */
+async function setVersionOnIssues(client, versionId, issueIdsOrKeys) {
+    coreExports.info(`Setting version ${versionId} on issues ${issueIdsOrKeys.join(", ")}...`);
+    return await Promise.all(issueIdsOrKeys.map((issueIdOrKey) => setVersionOnIssue(client, versionId, issueIdOrKey)));
+}
+/**
+ * Adds a version to a single Jira issue.
+ *
+ * @param client - The Jira client instance.
+ * @param versionId - The ID of the version to add.
+ * @param issueIdOrKey - The ID or key of the issue to update.
+ * @returns The updated issue.
+ */
+async function setVersionOnIssue(client, versionId, issueIdOrKey) {
+    coreExports.debug(`Setting version ${versionId} on issue ${issueIdOrKey}...`);
+    return await client.issues.editIssue({
+        issueIdOrKey,
+        update: {
+            fixVersions: [
+                {
+                    add: {
+                        id: versionId,
+                    },
+                },
+            ],
+        },
+    });
+}
+/**
+ * Prepares parameters for upsert operations, handling release date logic.
+ *
+ * @param params - The input parameters.
+ * @returns Prepared parameters with formatted release date.
+ */
+function prepareUpsertParams(params) {
+    // Make sure the release date is set if the release is released.
+    if (params.released && !params.releaseDate) {
+        params.releaseDate = new Date().toISOString().split("T")[0];
+    }
+    else if (!params.released) {
+        params.releaseDate = undefined;
+    }
+    // Make sure the release date is in YYYY-MM-DD format.
+    if (params.releaseDate) {
+        params.releaseDate = new Date(params.releaseDate)
+            .toISOString()
+            .split("T")[0];
+    }
+    return {
+        ...params,
+        releaseDate: params.releaseDate
+            ? new Date(params.releaseDate).toISOString().split("T")[0]
+            : undefined,
+    };
+}
+
+// Define Valibot schema
+const InputSchema = pipe(object({
+    email: string(),
+    api_token: string(),
+    subdomain: string(),
+    jira_project: string(),
+    release_name: string(),
+    operation: picklist(["create_or_update", "delete"]),
+    tickets: string(),
+    dry_run: boolean(),
+    release_description: string(),
+    release_released: boolean(),
+    release_release_date: string(),
+    release_archived: boolean(),
+}), check((input) => {
+    if (input.release_release_date.trim() !== "") {
+        const date = new Date(input.release_release_date);
+        return !Number.isNaN(date.getTime());
+    }
+    return true;
+}, "Release date must be a valid date."));
 
 /**
  * The main function for the action.
@@ -61005,10 +61132,18 @@ async function run() {
             operation: coreExports.getInput("operation", { required: true }),
             tickets: coreExports.getInput("tickets", { required: false }),
             dry_run: coreExports.getBooleanInput("dry_run", { required: false }),
-            release_description: coreExports.getInput("release_description", { required: false }),
-            release_released: coreExports.getBooleanInput("release_released", { required: false }),
-            release_release_date: coreExports.getInput("release_release_date", { required: false }),
-            release_archived: coreExports.getBooleanInput("release_archived", { required: false }),
+            release_description: coreExports.getInput("release_description", {
+                required: false,
+            }),
+            release_released: coreExports.getBooleanInput("release_released", {
+                required: false,
+            }),
+            release_release_date: coreExports.getInput("release_release_date", {
+                required: false,
+            }),
+            release_archived: coreExports.getBooleanInput("release_archived", {
+                required: false,
+            }),
         };
         // Validate inputs
         const input = parse(InputSchema, inputs);
@@ -61017,21 +61152,31 @@ async function run() {
             coreExports.info(JSON.stringify(input, null, 2));
             return;
         }
+        coreExports.info(`Performing release operation ${input.operation} on project ${input.jira_project} for release ${input.release_name}...`);
+        coreExports.debug(JSON.stringify(input, null, 2));
         const client = await createJiraClient(input.email, input.api_token, input.subdomain);
         if (input.operation === "create_or_update") {
-            await upsertProjectVersion(client, input.jira_project, {
+            const version = await upsertProjectVersion(client, input.jira_project, {
                 name: input.release_name,
                 description: input.release_description,
                 released: input.release_released,
                 releaseDate: input.release_release_date || undefined,
                 archived: input.release_archived,
             });
+            if (input.tickets) {
+                const issueIdsOrKeys = input.tickets
+                    .split(",")
+                    .map((ticket) => ticket.trim());
+                // biome-ignore lint/style/noNonNullAssertion: We know id is set!
+                await setVersionOnIssues(client, version.id, issueIdsOrKeys);
+            }
         }
         else if (input.operation === "delete") {
             await deleteProjectVersionByName(client, input.jira_project, input.release_name);
         }
     }
     catch (error) {
+        coreExports.debug(JSON.stringify(error, null, 2));
         // Fail the workflow run if an error occurs
         if (error instanceof Error)
             coreExports.setFailed(error.message);
