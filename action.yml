@@ -4,20 +4,54 @@ author: wunderwerk software GmbH
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
 branding:
-  icon: heart
-  color: red
+  icon: jira
+  color: blue
 
 # Define your inputs here.
 inputs:
-  milliseconds:
-    description: Your input description here
+  email:
     required: true
-    default: '1000'
-
-# Define your outputs here.
-outputs:
-  time:
-    description: Your output description here
+    description: Email address associated with api token
+  api_token:
+    required: true
+    description: Jira API token
+  subdomain:
+    required: true
+    description: '{subdomain}.atlassian.net'
+  jira_project:
+    required: true
+    description: 'Id of the JIRA project'
+  release_name:
+    required: true
+    description: Name of the release
+  operation:
+    required: true
+    description: 'Operation to perform. Possible values: create_or_update, delete'
+    default: 'create_or_update'
+  release_description:
+    required: false
+    description: Description of the release
+    default: ''
+  release_released:
+    required: false
+    description: Whether the release is released
+    default: 'true'
+  release_release_date:
+    required: false
+    description: Release date of the release in ISO 8601 format (yyyy-mm-dd)
+    default: ''
+  release_archived:
+    required: false
+    description: Whether the release is archived
+    default: 'false'
+  tickets:
+    required: false
+    description: Comma separated list of ticket IDs to include in the release. Update the first release-version.
+    default: ''
+  dry_run:
+    description: Dump the config
+    required: false
+    default: 'false'
 
 runs:
   using: node24
